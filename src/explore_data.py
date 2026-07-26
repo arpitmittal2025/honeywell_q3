@@ -57,6 +57,15 @@ def load_or_generate_data() -> Tuple[pd.DataFrame, str]:
     csv_path = os.path.join(DATA_DIR, "Autonomous_Choke_Control_Simulated_Dataset.csv")
     if os.path.exists(csv_path):
         df = pd.read_csv(csv_path)
+        # Normalize column names from official reference dataset format to standard names
+        rename_map = {
+            "Choke_pct": "choke",
+            "OilRate_bbl_hr": "Q",
+            "WHP_psi": "WHP",
+            "FLP_psi": "FLP",
+            "BHP_psi": "BHP",
+        }
+        df = df.rename(columns=rename_map)
         return df, "reference"
     else:
         print("[explore] Reference CSV not found — generating synthetic data from mock simulator.")

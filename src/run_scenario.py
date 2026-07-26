@@ -333,23 +333,34 @@ def print_summary(df: pd.DataFrame, scenario: ScenarioConfig,
 #  Model preparation                                                      #
 # ====================================================================== #
 
-def prepare_model() -> WellModel:
+def prepare_model(data_source: str = "mock") -> WellModel:
     """
     Load a fitted model from disk, or fit one from step-test data.
+
+    Parameters
+    ----------
+    data_source : str
+        ``"mock"`` or ``"real"`` — selects which model params file to load.
     """
-    model_path = os.path.join(PROJECT_ROOT, "data", "model_params.json")
+    suffix = "" if data_source == "mock" else "_real"
+    model_path = os.path.join(PROJECT_ROOT, "data", f"model_params{suffix}.json")
 
     if os.path.exists(model_path):
-        print("[harness] Loading fitted model from disk...")
+        print(f"[harness] Loading fitted model ({data_source}) from disk...")
         return WellModel.load(model_path)
 
     # No model on disk — run step tests and fit
-    print("[harness] No fitted model found. Running step tests + fitting...")
-    csv_path = os.path.join(PROJECT_ROOT, "data", "step_test_results.csv")
+    print(f"[harness] No fitted model found ({data_source}). Running step tests + fitting...")
+    csv_path = os.path.join(PROJECT_ROOT, "data", f"step_test_results{suffix}.csv")
 
     if os.path.exists(csv_path):
         df_step = pd.read_csv(csv_path)
     else:
+        if data_source == "real":
+            raise FileNotFoundError(
+                f"Real step-test data not found at {csv_path}.\n"
+                "Run step tests first: python src/step_test.py --sim-type real"
+            )
         df_step = run_step_tests("mock")
         os.makedirs(os.path.dirname(csv_path), exist_ok=True)
         df_step.to_csv(csv_path, index=False)
@@ -363,24 +374,27 @@ def prepare_model() -> WellModel:
 #  Main orchestrator                                                      #
 # ====================================================================== #
 
-def run_scenario(scenario_key: str, model: WellModel) -> None:
+def run_scenario(scenario_key: str, model: WellModel,
+                 sim_type: str = "mock") -> None:
     """Run a single scenario end-to-end."""
     scenario = SCENARIOS[scenario_key]
+    sim_label = sim_type.capitalize()
 
     print(f"\n{'#'*60}")
-    print(f"  Running Scenario {scenario.name}")
+    print(f"  Running Scenario {scenario.name} ({sim_label} Simulator)")
     print(f"{'#'*60}")
 
     # Run closed loop
-    df = run_closed_loop(scenario, model, sim_type="mock")
+    df = run_closed_loop(scenario, model, sim_type=sim_type)
 
     # Validate
     checks = validate_results(df, scenario)
 
     # Save CSV log
+    suffix = "" if sim_type == "mock" else "_real"
     results_dir = os.path.join(PROJECT_ROOT, "results")
     os.makedirs(results_dir, exist_ok=True)
-    csv_out = os.path.join(results_dir, f"scenario_{scenario_key.lower()}_log.csv")
+    csv_out = os.path.join(results_dir, f"scenario_{scenario_key.lower()}{suffix}_log.csv")
     df.to_csv(csv_out, index=False)
     print(f"  -> Log saved: {csv_out}")
 
@@ -407,17 +421,26 @@ def main():
         default="mock",
         help="Simulator to use (default: mock).",
     )
+    parser.add_argument(
+        "--model-source",
+        choices=["mock", "real"],
+        default=None,
+        help="Which fitted model to use (default: same as --sim-type).",
+    )
     args = parser.parse_args()
 
+    # Default: model source matches simulator type
+    model_source = args.model_source or args.sim_type
+
     # Prepare model
-    model = prepare_model()
+    model = prepare_model(data_source=model_source)
 
     # Run requested scenarios
     if args.scenario == "all":
         for key in ["A", "B", "C"]:
-            run_scenario(key, model)
+            run_scenario(key, model, sim_type=args.sim_type)
     else:
-        run_scenario(args.scenario, model)
+        run_scenario(args.scenario, model, sim_type=args.sim_type)
 
     print("\n" + "=" * 60)
     print("  All scenarios complete.")

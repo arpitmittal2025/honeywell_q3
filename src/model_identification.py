@@ -352,32 +352,199 @@ def plot_model_validation(df: pd.DataFrame, model: WellModel,
 
 
 # ====================================================================== #
+#  Model comparison utilities (Phase 2)                                   #
+# ====================================================================== #
+
+def compare_models(model_a: WellModel, model_b: WellModel,
+                   label_a: str = "Mock", label_b: str = "Real") -> None:
+    """
+    Print a side-by-side comparison of two fitted models.
+
+    Compares steady-state parameters, time constants, and predicted
+    values at representative choke positions.
+    """
+    print(f"\n{'='*70}")
+    print(f"  Model Comparison: {label_a} vs. {label_b}")
+    print(f"{'='*70}")
+
+    test_chokes = [10, 25, 50, 75, 100]
+
+    for var in ["Q", "WHP", "FLP", "BHP"]:
+        ma = model_a.models[var]
+        mb = model_b.models[var]
+
+        print(f"\n  {var}:")
+        print(f"    {'':20s}  {'['+label_a+']':>12s}  {'['+label_b+']':>12s}  {'Delta':>10s}")
+        print(f"    {'SS type':20s}  {ma.ss_type:>12s}  {mb.ss_type:>12s}")
+        print(f"    {'tau (hr)':20s}  {ma.tau:12.3f}  {mb.tau:12.3f}  {mb.tau - ma.tau:+10.3f}")
+
+        # Compare predictions at test points
+        print(f"    {'--- SS predictions':20s}  {'':>12s}  {'':>12s}  {'':>10s}")
+        for u in test_chokes:
+            ya = ma.steady_state(u)
+            yb = mb.steady_state(u)
+            pct_diff = 100.0 * (yb - ya) / max(abs(ya), 1e-6)
+            print(f"    {'  choke=' + str(u) + '%':20s}  {ya:12.1f}  {yb:12.1f}  {pct_diff:+9.1f}%")
+
+
+def plot_model_comparison(
+    df_real: pd.DataFrame,
+    model_mock: WellModel,
+    model_real: WellModel,
+    save_dir: str | None = None,
+) -> None:
+    """
+    Plot real data overlaid with both mock-model and real-model predictions.
+    """
+    import matplotlib.pyplot as plt
+
+    if save_dir is None:
+        save_dir = os.path.join(PROJECT_ROOT, "results", "step_tests_real")
+    os.makedirs(save_dir, exist_ok=True)
+
+    u = df_real["choke"].values
+    t = df_real["t"].values if "t" in df_real.columns else np.arange(len(df_real))
+
+    colors = {"Q": "#2196F3", "WHP": "#FF9800", "FLP": "#4CAF50", "BHP": "#E91E63"}
+    labels = {
+        "Q": "Oil Flow Rate (bbl/hr)",
+        "WHP": "Wellhead Pressure (psi)",
+        "FLP": "Flowline Pressure (psi)",
+        "BHP": "Bottom-Hole Pressure (psi)",
+    }
+
+    fig, axes = plt.subplots(4, 1, figsize=(14, 14), sharex=True)
+    fig.suptitle("Model Comparison on Real Data\nMock-Model vs. Real-Model vs. Measured",
+                 fontsize=15, fontweight="bold")
+
+    for idx, var in enumerate(["Q", "WHP", "FLP", "BHP"]):
+        ax = axes[idx]
+        y_meas = df_real[var].values
+
+        # Simulate with mock model
+        vm_mock = model_mock.models[var]
+        y_mock = np.zeros(len(u))
+        y_mock[0] = y_meas[0]
+        for k in range(1, len(u)):
+            y_mock[k] = vm_mock.predict_one_step(y_mock[k - 1], u[k])
+
+        # Simulate with real model
+        vm_real = model_real.models[var]
+        y_real = np.zeros(len(u))
+        y_real[0] = y_meas[0]
+        for k in range(1, len(u)):
+            y_real[k] = vm_real.predict_one_step(y_real[k - 1], u[k])
+
+        ax.plot(t, y_meas, color=colors[var], alpha=0.5, linewidth=1.0,
+                label="Measured (real)")
+        ax.plot(t, y_mock, color="#999999", linewidth=1.5, linestyle=":",
+                label="Mock model")
+        ax.plot(t, y_real, color=colors[var], linewidth=2.0, linestyle="--",
+                label="Real model")
+        ax.set_ylabel(labels[var], fontsize=11)
+        ax.legend(fontsize=9)
+        ax.grid(True, alpha=0.3)
+
+    axes[-1].set_xlabel("Time (hours)", fontsize=12)
+    plt.tight_layout()
+    fpath = os.path.join(save_dir, "model_comparison.png")
+    plt.savefig(fpath, dpi=150, bbox_inches="tight")
+    plt.close()
+    print(f"[model] Saved comparison plot -> {fpath}")
+
+
+# ====================================================================== #
 #  CLI entry point                                                        #
 # ====================================================================== #
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Fit dynamic models from step-test data."
+    )
+    parser.add_argument(
+        "--data-source", "-d",
+        choices=["mock", "real", "reference"],
+        default="mock",
+        help="Which step-test dataset to use (default: mock).",
+    )
+    parser.add_argument(
+        "--compare",
+        action="store_true",
+        help="Compare mock and real models side-by-side.",
+    )
+    args = parser.parse_args()
+
+    if args.data_source == "mock":
+        suffix = ""
+    elif args.data_source == "real":
+        suffix = "_real"
+    else:
+        suffix = "_reference"
+    label = args.data_source.capitalize()
+
     print("=" * 60)
-    print("  Dynamic Model Identification")
+    print(f"  Dynamic Model Identification ({label} Data)")
     print("=" * 60)
 
-    csv_path = os.path.join(PROJECT_ROOT, "data", "step_test_results.csv")
+    if args.data_source == "reference":
+        csv_path = os.path.join(PROJECT_ROOT, "data", "Autonomous_Choke_Control_Simulated_Dataset.csv")
+    else:
+        csv_path = os.path.join(PROJECT_ROOT, "data", f"step_test_results{suffix}.csv")
+
     if not os.path.exists(csv_path):
         print(f"[model] Step test data not found at {csv_path}")
-        print("[model] Running step tests first...")
-        from src.step_test import run_step_tests
-        df = run_step_tests("mock")
-        os.makedirs(os.path.dirname(csv_path), exist_ok=True)
-        df.to_csv(csv_path, index=False)
+        if args.data_source == "mock":
+            print("[model] Running mock step tests first...")
+            from src.step_test import run_step_tests
+            df = run_step_tests("mock")
+            os.makedirs(os.path.dirname(csv_path), exist_ok=True)
+            df.to_csv(csv_path, index=False)
+        else:
+            print(f"[model] Required dataset not found at {csv_path}")
+            sys.exit(1)
     else:
         df = pd.read_csv(csv_path)
+        if args.data_source == "reference":
+            rename_map = {
+                "Choke_pct": "choke",
+                "OilRate_bbl_hr": "Q",
+                "WHP_psi": "WHP",
+                "FLP_psi": "FLP",
+                "BHP_psi": "BHP",
+            }
+            df = df.rename(columns=rename_map)
 
     model = fit_all(df)
 
     # Save model
-    model_path = os.path.join(PROJECT_ROOT, "data", "model_params.json")
+    model_path = os.path.join(PROJECT_ROOT, "data", f"model_params{suffix}.json")
     model.save(model_path)
 
     # Validation plot
-    plot_model_validation(df, model)
+    if args.data_source == "mock":
+        plot_save_dir = os.path.join(PROJECT_ROOT, "results", "step_tests")
+    else:
+        plot_save_dir = os.path.join(PROJECT_ROOT, "results", f"step_tests{suffix}")
+    plot_model_validation(df, model, save_dir=plot_save_dir)
+
+    # Optional: compare mock vs. real models
+    if args.compare:
+        mock_model_path = os.path.join(PROJECT_ROOT, "data", "model_params.json")
+        real_model_path = os.path.join(PROJECT_ROOT, "data", "model_params_real.json")
+        if os.path.exists(mock_model_path) and os.path.exists(real_model_path):
+            m_mock = WellModel.load(mock_model_path)
+            m_real = WellModel.load(real_model_path)
+            compare_models(m_mock, m_real)
+            # If real step-test data exists, plot comparison on it
+            real_csv = os.path.join(PROJECT_ROOT, "data", "step_test_results_real.csv")
+            if os.path.exists(real_csv):
+                df_real = pd.read_csv(real_csv)
+                plot_model_comparison(df_real, m_mock, m_real)
+        else:
+            print("[model] Cannot compare — need both model_params.json and "
+                  "model_params_real.json")
 
     print("\n[model] Done.")
+

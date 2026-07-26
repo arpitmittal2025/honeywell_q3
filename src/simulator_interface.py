@@ -100,10 +100,9 @@ def create_simulator(sim_type: str = "mock", **kwargs) -> SimulatorInterface:
         config = MockSimulatorConfig(**kwargs) if kwargs else None
         return MockSimulatorAdapter(config)
     elif sim_type == "real":
-        raise NotImplementedError(
-            "Real simulator adapter not yet implemented. "
-            "Waiting for real simulator delivery (Phase 2)."
-        )
+        # Lazy import to avoid circular dependency
+        from src.real_simulator import RealSimulatorAdapter
+        return RealSimulatorAdapter(**kwargs)
     else:
         raise ValueError(f"Unknown simulator type: {sim_type!r}")
 

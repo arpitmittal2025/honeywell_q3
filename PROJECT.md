@@ -193,18 +193,18 @@ once the real simulator is available.
 ## 8. Deliverables
 
 ### 8.1 Technical Deliverables
-- [ ] Python notebook or Python code implementing the full pipeline
-- [ ] Open-loop step-test analysis
-- [ ] Dynamic model identification and documented assumptions
-- [ ] Autonomous choke controller implementation
-- [ ] Results for all three demonstration scenarios
+- [x] Python notebook or Python code implementing the full pipeline
+- [x] Open-loop step-test analysis
+- [x] Dynamic model identification and documented assumptions
+- [x] Autonomous choke controller implementation
+- [x] Results for all three demonstration scenarios
 
 ### 8.2 Plots (per scenario)
-- [ ] Target Oil Rate vs. Actual Oil Rate
-- [ ] Wellhead Pressure (WHP)
-- [ ] Flowline Pressure (FLP)
-- [ ] Bottom Hole Pressure (BHP)
-- [ ] Choke Position
+- [x] Target Oil Rate vs. Actual Oil Rate
+- [x] Wellhead Pressure (WHP)
+- [x] Flowline Pressure (FLP)
+- [x] Bottom Hole Pressure (BHP)
+- [x] Choke Position
 
 ### 8.3 Documentation / Presentation
 Using the provided presentation template, include:
@@ -250,11 +250,20 @@ project/
 - Report clarity and completeness
 
 ## 11. Key Assumptions Log
-*(fill in during development)*
-- Assumption 1: ...
-- Assumption 2: ...
-- Assumption 3: ...
+
+1. **First-order dynamics**: The well's transient response is adequately modeled by a first-order lag (no dead time, no overshoot). Validated by R² > 0.99 on dynamic fits.
+2. **Power-law steady-state**: The choke-to-output relationship follows y = a·(u/100)^b + c. The fitted exponent b ≈ 0.5 is consistent with Gilbert-type choke flow physics.
+3. **Uniform time constants**: All four outputs (Q, WHP, FLP, BHP) share approximately the same time constant (~3 hr). Simplifies the model but may not hold for the real well.
+4. **No hysteresis**: Ascending and descending step responses are symmetric. Verified by running staircases in both directions.
+5. **Small measurement noise**: Noise is ~0.5% of signal, Gaussian. Real sensors will likely be noisier but the model structure is robust.
+6. **No process disturbances**: Reservoir pressure, GOR, and water cut are constant. Real wells exhibit slow drift — would need periodic re-identification.
+7. **Fixed constraint limits**: WHP, FLP, BHP limits are known and constant. Typical for industrial operations.
+8. **Single-step-ahead horizon is sufficient**: The controller re-evaluates every hour, compensating for the short prediction horizon.
 
 ## 12. Open Questions / Risks
-*(fill in during development)*
-- ...
+
+1. **Real simulator delivery**: Phases 2–3 infrastructure is built and tested against the mock simulator. Once the real simulator is provided, integration is a one-file edit (`src/real_simulator.py`).
+2. **Model-plant mismatch**: The mock simulator has near-perfect fit (R² > 0.99). Real-world model accuracy will be lower — may need to widen constraint margins or add integral correction.
+3. **Time constant differences**: Real well dynamics may differ between flow rate and pressure variables. The current model assumes a single τ for all outputs.
+4. **Noise sensitivity**: The controller was tested with 0.5% noise. Higher noise levels may cause hunting (oscillation around the target). Could be mitigated with a dead-band or filtering.
+5. **Settling time vs. ramp rate**: The 5% ramp-rate limit means startup takes ~20 control intervals to reach 100% choke. This is by design (safety), but may be slower than desired for some operational scenarios.
